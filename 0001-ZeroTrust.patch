@@ -1,0 +1,326 @@
+From ae290ed7dd91e2186135c6fbcaf6f4455f9836b7 Mon Sep 17 00:00:00 2001
+From: kairun <support@kairun.jp>
+Date: Mon, 29 Dec 2025 12:42:36 +0900
+Subject: [PATCH] =?UTF-8?q?ZeroTrust=E3=82=92=E4=BD=BF=E3=81=A3=E3=81=9F?=
+ =?UTF-8?q?=E3=81=8B=E3=81=84=E3=82=8B=E3=82=93=E3=82=A2=E3=82=AB=E3=82=A6?=
+ =?UTF-8?q?=E3=83=B3=E3=83=88=E3=81=AE=E8=AA=8D=E8=A8=BC=E5=87=A6=E7=90=86?=
+ =?UTF-8?q?=E5=AF=BE=E5=BF=9C?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ client/src/components/Navigation.vue          |  6 ++
+ client/src/components/Watch/Navigation.vue    |  6 ++
+ client/src/main.ts                            |  9 +++
+ client/src/services/APIClient.ts              | 15 +++++
+ client/src/services/CloudflareZerotrust.ts    | 65 +++++++++++++++++++
+ client/src/stores/CloudflareZerotrustStone.ts | 64 ++++++++++++++++++
+ client/src/stores/SettingsStore.ts            |  3 +
+ client/src/views/MyPage.vue                   |  6 ++
+ 8 files changed, 174 insertions(+)
+ create mode 100644 client/src/services/CloudflareZerotrust.ts
+ create mode 100644 client/src/stores/CloudflareZerotrustStone.ts
+
+diff --git a/client/src/components/Navigation.vue b/client/src/components/Navigation.vue
+index a7702127..3101dd78 100644
+--- a/client/src/components/Navigation.vue
++++ b/client/src/components/Navigation.vue
+@@ -39,6 +39,10 @@
+                         <span class="navigation__link-text">視聴履歴</span>
+                     </router-link>
+                     <v-spacer></v-spacer>
++                    <a v-ripple class="navigation__link" active-class="navigation__link--active" href="/cdn-cgi/access/logout" v-if="settingsStore.settings.is_cloudflare_zerotrust">
++                        <Icon class="navigation__link-icon" icon="fluent:sign-out-20-regular" width="26px" />
++                        <span class="navigation__link-text">かいるんアカウントのログアウト</span>
++                    </a>
+                     <router-link v-ripple class="navigation__link" active-class="navigation__link--active" to="/settings/"
+                         :class="{'navigation__link--active': $route.path.startsWith('/settings')}">
+                         <Icon class="navigation__link-icon" icon="fluent:settings-20-regular" width="26px" />
+@@ -68,6 +72,7 @@ import { defineComponent } from 'vue';
+ 
+ import BottomNavigation from '@/components/BottomNavigation.vue';
+ import useVersionStore from '@/stores/VersionStore';
++import useSettingsStore from '@/stores/SettingsStore';
+ 
+ export default defineComponent({
+     name: 'Navigation',
+@@ -76,6 +81,7 @@ export default defineComponent({
+     },
+     computed: {
+         ...mapStores(useVersionStore),
++        ...mapStores(useSettingsStore),
+     },
+     async created() {
+         await this.versionStore.fetchServerVersion();
+diff --git a/client/src/components/Watch/Navigation.vue b/client/src/components/Watch/Navigation.vue
+index 95e00038..359b7708 100644
+--- a/client/src/components/Watch/Navigation.vue
++++ b/client/src/components/Watch/Navigation.vue
+@@ -42,6 +42,10 @@
+             <Icon class="watch-navigation__link-icon" icon="fluent:history-20-regular" width="26px" />
+         </router-link>
+         <v-spacer></v-spacer>
++        <a v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active" v-if="settingsStore.settings.is_cloudflare_zerotrust"
++            v-ftooltip.right="'かいるんアカウントのログアウト'" href="/cdn-cgi/access/logout">
++            <Icon class="watch-navigation__link-icon" icon="fluent:sign-out-20-regular" width="26px" />
++        </a>
+         <router-link v-ripple class="watch-navigation__link" active-class="watch-navigation__link--active"
+             :class="{'watch-navigation__link--active': $route.path.startsWith('/settings')}"
+             v-ftooltip.right="'設定'" to="/settings/">
+@@ -55,11 +59,13 @@ import { mapStores } from 'pinia';
+ import { defineComponent } from 'vue';
+ 
+ import usePlayerStore from '@/stores/PlayerStore';
++import useSettingsStore from '@/stores/SettingsStore';
+ 
+ export default defineComponent({
+     name: 'Watch-Navigation',
+     computed: {
+         ...mapStores(usePlayerStore),
++        ...mapStores(useSettingsStore),
+     }
+ });
+ 
+diff --git a/client/src/main.ts b/client/src/main.ts
+index c5817674..3158aefa 100644
+--- a/client/src/main.ts
++++ b/client/src/main.ts
+@@ -124,3 +124,12 @@ window.setInterval(async () => {
+         await settings_store.syncClientSettingsFromServer();
+     }
+ }, 3 * 1000);  // 3秒おき
++
++// ***** NO PWA パラメータの処理 *****
++// 現在の URL を解析
++const u = new URL(location.href);
++// 'pwa' パラメータが 'false' の場合、URL から削除する
++if (u.searchParams.get('pwa') === 'false') {
++    u.searchParams.delete('pwa');
++    history.pushState('', '', u.href);
++}
+diff --git a/client/src/services/APIClient.ts b/client/src/services/APIClient.ts
+index 2282e2d8..5db9dff3 100644
+--- a/client/src/services/APIClient.ts
++++ b/client/src/services/APIClient.ts
+@@ -9,6 +9,7 @@ import axios, { AxiosError, AxiosRequestConfig, AxiosResponse, AxiosResponseHead
+ import Message from '@/message';
+ import useUserStore from '@/stores/UserStore';
+ import Utils from '@/utils';
++import useCFZTStore from '@/stores/CloudflareZerotrustStone';
+ 
+ 
+ /** API リクエスト成功時のレスポンスを表すインターフェイス */
+@@ -260,6 +261,20 @@ class APIClient {
+                     } else if (error_response.error.code === AxiosError.ERR_NETWORK) {
+                         // 予期しないネットワークエラーの場合
+                         Message.error(`${template}\n予期しないネットワークエラーが発生しました。(${error_response.error.message})`);
++                        if (!error_response.error.config?.url?.startsWith('/cdn-cgi/')){
++                            (async ()=>{
++                                const CFZTStore = useCFZTStore();
++                                // @ts-ignore
++                                window.CFZTStore = CFZTStore;
++                                await CFZTStore.fetchCFZTIdentity();
++                                const u = new URL(location.href);
++                                if (u.searchParams.get('pwa') !== 'false' && !u.searchParams.get('__cf_access_message') && CFZTStore.is_CFZT && !CFZTStore.is_login) {
++                                    console.log('Cloudflare ZeroTrust Login need!!');
++                                    u.searchParams.set('pwa','false');
++                                    location.href = u.href;
++                                }
++                            })();
++                        }
+                     } else {
+                         // それ以外のエラーの場合
+                         Message.error(`${template}(${error_response.error.message})`);
+diff --git a/client/src/services/CloudflareZerotrust.ts b/client/src/services/CloudflareZerotrust.ts
+new file mode 100644
+index 00000000..d4f8df58
+--- /dev/null
++++ b/client/src/services/CloudflareZerotrust.ts
+@@ -0,0 +1,65 @@
++
++import APIClient from '@/services/APIClient';
++
++interface CloudflareZerotrustIdentity {
++    id: string;
++    name: string;
++    email: string;
++    groups: string[];
++    idp: {
++        id: string;
++        type: string;
++    };
++    geo: {
++        country: string;
++    };
++    user_uuid: string;
++    account_id: string;
++    iat: number;
++    ip: string;
++    auth_status: string;
++    common_name: string;
++    service_token_id: string;
++    service_token_status: boolean;
++    is_warp: boolean;
++    is_gateway: boolean;
++    version: number;
++}
++
++
++// interface ErrorCloudflareZerotrustIdentity {
++//     err: string;
++// }
++
++export type ICloudflareZerotrustIdentity = CloudflareZerotrustIdentity | boolean | null ;
++
++
++class CloudflareZerotrust {
++
++    /**
++     * Cloudflare Zerotrust ユーザー情報を取得する
++     * @param suppress_error エラーメッセージを表示しない場合は true
++     * @returns バージョン情報 or バージョン情報の取得に失敗した場合は null
++     */
++    static async fetchCloudflareZerotrustIdentity(): Promise<ICloudflareZerotrustIdentity> {
++        if (location.hostname.endsWith('local.konomi.tv')){
++            return null;
++        }
++        // API リクエストを実行
++        const response = await APIClient.get('/cdn-cgi/access/get-identity', {
++            baseURL: ''
++        });
++
++        // not cf
++        if (typeof response.data === 'string' && response.data?.includes('<!DOCTYPE html>')) {
++            return null;
++        // not login
++        // "err": "no app token set"
++        } else if ('err' in response.data) {
++            return false;
++        }
++        return response.data;
++    }
++}
++
++export default CloudflareZerotrust;
+diff --git a/client/src/stores/CloudflareZerotrustStone.ts b/client/src/stores/CloudflareZerotrustStone.ts
+new file mode 100644
+index 00000000..32524f9f
+--- /dev/null
++++ b/client/src/stores/CloudflareZerotrustStone.ts
+@@ -0,0 +1,64 @@
++
++import { defineStore } from 'pinia';
++
++import Utils from '@/utils';
++import CloudflareZerotrust, { ICloudflareZerotrustIdentity } from '@/services/CloudflareZerotrust';
++import useSettingsStore from '@/stores/SettingsStore';
++
++
++/**
++ * CFZTを共有するストア
++ */
++const useCFZTStore = defineStore('CFZT', {
++    state: () => ({
++
++        identity_info: null as ICloudflareZerotrustIdentity | boolean | null,
++
++        // 最終更新日時 (UNIX タイムスタンプ、秒単位)
++        last_updated_at: 0,
++    }),
++    getters: {
++        // null
++        is_CFZT(): boolean {
++            const settings_store = useSettingsStore();
++            return !!settings_store.settings.is_cloudflare_zerotrust
++        },
++        // null false
++        is_login(): boolean {
++            return !!this.identity_info
++        }
++    },
++    actions: {
++
++        /**
++         * Cloudflare Zerotrust(CFZT) ユーザー情報を取得する
++         * すでに取得済みの情報がある場合は API リクエストを行わずにそれを返す
++         * @param force 強制的に API リクエストを行う場合は true
++         * @returns CFZT でない場合は null、ログインしていない場合は false
++         */
++        async fetchCFZTIdentity(force: boolean = false): Promise<ICloudflareZerotrustIdentity | null> {
++            const settings_store = useSettingsStore();
++            // hidden setting = is_cloudflare_zerotrust
++            // if(settings_store.settings.is_cloudflare_zerotrust === false && force === false){
++            //     return null;
++            // }
++            if (this.identity_info !== null && force === false) {
++                // ただし、最終更新日時が5秒以上前の場合は非同期で更新する
++                if (Utils.time() - this.last_updated_at > 5) {
++                    this.fetchCFZTIdentity(true);
++                }
++                return this.identity_info;
++            }
++
++            const identity_info = await CloudflareZerotrust.fetchCloudflareZerotrustIdentity();
++            console.log('identity_info',!!identity_info,!identity_info,identity_info);
++            settings_store.settings.is_cloudflare_zerotrust = (identity_info !== null);
++
++            this.identity_info = identity_info;
++
++            return this.identity_info;
++        },
++    }
++});
++
++export default useCFZTStore;
+diff --git a/client/src/stores/SettingsStore.ts b/client/src/stores/SettingsStore.ts
+index 4a31676a..7cfa812a 100644
+--- a/client/src/stores/SettingsStore.ts
++++ b/client/src/stores/SettingsStore.ts
+@@ -86,6 +86,7 @@ export interface ILocalClientSettings extends IClientSettings {
+     twitter_active_tab: 'Search' | 'Timeline' | 'Capture';
+     tweet_hashtag_position: 'Prepend' | 'Append' | 'PrependWithLineBreak' | 'AppendWithLineBreak';
+     tweet_capture_watermark_position: 'None' | 'TopLeft' | 'TopRight' | 'BottomLeft' | 'BottomRight';
++    is_cloudflare_zerotrust: boolean | null;
+ }
+ 
+ /**
+@@ -251,6 +252,8 @@ export const ILocalClientSettingsDefault: ILocalClientSettings = {
+     tweet_hashtag_position: 'Append',
+     // ツイートするキャプチャに番組名の透かしを描画する (Default: 透かしを描画しない)
+     tweet_capture_watermark_position: 'None',
++    // ZeroTrust
++    is_cloudflare_zerotrust: null,
+ };
+ 
+ // 同期対象の設定データのキーのみを列挙した配列
+diff --git a/client/src/views/MyPage.vue b/client/src/views/MyPage.vue
+index 1590b081..0b10ffe4 100644
+--- a/client/src/views/MyPage.vue
++++ b/client/src/views/MyPage.vue
+@@ -30,6 +30,10 @@
+                         <Icon icon="fluent:history-20-regular" width="26px" />
+                         <span class="ml-4">視聴履歴</span>
+                     </v-btn>
++                    <v-btn variant="flat" class="settings-navigation__button mt-3" href="/cdn-cgi/access/logout" v-if="settingsStore.settings.is_cloudflare_zerotrust">
++                        <Icon icon="fluent:sign-out-20-regular" width="26px" />
++                        <span class="ml-4">かいるんアカウントのログアウト</span>
++                    </v-btn>
+                     <v-btn variant="flat" class="settings-navigation__button settings-navigation__button--version mt-3"
+                         :class="{'settings-navigation__button--version-highlight': versionStore.is_update_available}"
+                         href="https://github.com/tsukumijima/KonomiTV" target="_blank">
+@@ -51,9 +55,11 @@ import HeaderBar from '@/components/HeaderBar.vue';
+ import Navigation from '@/components/Navigation.vue';
+ import useUserStore from '@/stores/UserStore';
+ import useVersionStore from '@/stores/VersionStore';
++import useSettingsStore from '@/stores/SettingsStore';
+ 
+ const userStore = useUserStore();
+ const versionStore = useVersionStore();
++const settingsStore = useSettingsStore();
+ 
+ onMounted(async () => {
+     await userStore.fetchUser();
+-- 
+2.45.1.windows.1
+
