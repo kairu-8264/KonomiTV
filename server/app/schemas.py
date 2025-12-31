@@ -561,3 +561,56 @@ class VersionInformation(BaseModel):
     environment: Literal['Windows', 'Linux', 'Linux-Docker', 'Linux-ARM']
     backend: Literal['EDCB', 'Mirakurun']
     encoder: Literal['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC', 'rkmppenc']
+
+# ***** EDCB 番組表 *****
+
+class EDCBEPGChannel(BaseModel):
+    """ EDCB 番組表 HTML から抽出されたチャンネル情報 """
+    onid: Annotated[int, Field(description='オリジナルネットワーク ID')]
+    sid: Annotated[int, Field(description='サービス ID')]
+    name: Annotated[str, Field(description='チャンネル名')]
+    min_width: Annotated[int, Field(description='カラムの最小幅 (px)')]
+    width: Annotated[int, Field(description='カラムの幅 (px)')]
+    colspan: Annotated[int, Field(default=1, description='カラムスパン数')]
+
+class EDCBEPGProgram(BaseModel):
+    """ EDCB 番組表 HTML から抽出された番組情報 """
+    event_id: Annotated[str, Field(description='番組 ID (EDCB 形式)')]
+    title: Annotated[str, Field(description='番組タイトル')]
+    start_minute: Annotated[str, Field(description='開始時刻の分表示')]
+    content_class: Annotated[str, Field(description='コンテンツジャンルを表す CSS クラス名')]
+    height: Annotated[int, Field(description='番組表示の高さ (px)')]
+    left: Annotated[int, Field(description='番組表示の横位置 (px)')]
+    top: Annotated[int, Field(description='番組表示の縦位置 (px)')]
+    width: Annotated[int, Field(description='番組表示の幅 (px)')]
+    is_past: Annotated[bool, Field(default=False, description='過去の番組かどうか')]
+    is_reserved: Annotated[bool, Field(default=False, description='予約済みかどうか')]
+    reservation_link: Annotated[str | None, Field(default=None, description='予約情報へのリンク')]
+    info_link: Annotated[str, Field(description='番組情報へのリンク')]
+    channel_onid: Annotated[int, Field(description='チャンネルの ONID')]
+    channel_sid: Annotated[int, Field(description='チャンネルの SID')]
+
+class EDCBEPGDate(BaseModel):
+    """ EDCB 番組表の日付ナビゲーション情報 """
+    display_text: Annotated[str, Field(description='日付表示テキスト')]
+    date_offset: Annotated[int, Field(description='現在日からの日付オフセット')]
+    is_current: Annotated[bool, Field(default=False, description='現在選択中の日付かどうか')]
+    link: Annotated[str | None, Field(default=None, description='日付選択用のリンク URL')]
+
+class EDCBEPGTab(BaseModel):
+    """ EDCB 番組表のタブ情報（地デジ、BS、CS など） """
+    name: Annotated[str, Field(description='タブ名')]
+    tab_id: Annotated[int, Field(description='タブ ID')]
+    is_current: Annotated[bool, Field(default=False, description='現在選択中のタブかどうか')]
+    link: Annotated[str | None, Field(default=None, description='タブ選択用のリンク URL')]
+
+class EDCBEPGData(BaseModel):
+    """ EDCB 番組表 HTML から抽出された全データ """
+    title: Annotated[str, Field(description='ページタイトル')]
+    tabs: Annotated[list[EDCBEPGTab], Field(default_factory=list, description='タブ情報のリスト')]
+    dates: Annotated[list[EDCBEPGDate], Field(default_factory=list, description='日付ナビゲーション情報のリスト')]
+    channels: Annotated[list[EDCBEPGChannel], Field(default_factory=list, description='チャンネル情報のリスト')]
+    programs: Annotated[list[EDCBEPGProgram], Field(default_factory=list, description='番組情報のリスト')]
+    current_tab_id: Annotated[int, Field(description='現在選択中のタブ ID')]
+    current_date_offset: Annotated[int, Field(description='現在選択中の日付オフセット')]
+    is_custom: Annotated[bool, Field(default=False, description='カスタム表示かどうか')]

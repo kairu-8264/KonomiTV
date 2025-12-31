@@ -7,9 +7,9 @@
 import axios, { AxiosError, AxiosRequestConfig, AxiosResponse, AxiosResponseHeaders, RawAxiosResponseHeaders } from 'axios';
 
 import Message from '@/message';
+import useCFZTStore from '@/stores/CloudflareZerotrustStone';
 import useUserStore from '@/stores/UserStore';
 import Utils from '@/utils';
-import useCFZTStore from '@/stores/CloudflareZerotrustStone';
 
 
 /** API リクエスト成功時のレスポンスを表すインターフェイス */
@@ -268,7 +268,7 @@ class APIClient {
                                 window.CFZTStore = CFZTStore;
                                 await CFZTStore.fetchCFZTIdentity();
                                 const u = new URL(location.href);
-                                if (u.searchParams.get('pwa') !== 'false' && !u.searchParams.get('__cf_access_message') && CFZTStore.is_CFZT && !CFZTStore.is_login) {
+                                if (u.searchParams.get('pwa') !== 'false' && !u.searchParams.get('__cf_access_message') && CFZTStore.is_CFZT) {
                                     console.log('Cloudflare ZeroTrust Login need!!');
                                     u.searchParams.set('pwa','false');
                                     location.href = u.href;
